@@ -10,8 +10,8 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Trust proxies (important for rate limiting behind load balancers/proxies)
-app.set('trust proxy', true);
+// Secure proxy configuration for Render.com
+app.set('trust proxy', ['loopback', 'linklocal', 'uniquelocal']);
 
 // Middleware
 app.use(cors());
@@ -21,21 +21,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 // In-memory storage for OTPs
 const otpStorage = new Map();
 
-// Rate limiting configuration
-const sendOtpLimiter = rateLimit({
+// Secure rate limiting configuration
+const rateLimitConfig = {
     windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 5, // limit each IP to 5 requests per windowMs
-    message: 'Too many OTP requests. Please try again later.',
+    validate: { trustProxy: false }, // Disable proxy trust for rate limiting
+    handler: (req, res) => {
+        return res.status(429).json({ 
+            success: false,
+            message: 'Too many requests. Please try again later.' 
+        });
+    },
     standardHeaders: true,
     legacyHeaders: false
+};
+
+const sendOtpLimiter = rateLimit({
+    ...rateLimitConfig,
+    max: 5, // limit each IP to 5 requests per windowMs
 });
 
 const verifyOtpLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000, // 5 minutes
+    ...rateLimitConfig,
     max: 30, // limit each IP to 30 requests per windowMs
-    message: 'Too many verification attempts. Please try again later.',
-    standardHeaders: true,
-    legacyHeaders: false
 });
 
 // Nodemailer transporter configuration
@@ -44,9 +51,6 @@ const transporter = nodemailer.createTransport({
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASSWORD
-    },
-    tls: {
-        rejectUnauthorized: false // For local testing only (remove in production)
     }
 });
 
@@ -57,7 +61,12 @@ function generateOTP() {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: 'OK', timestamp: new Date() });
+    res.status(200).json({ 
+        status: 'OK', 
+        timestamp: new Date(),
+        ip: req.ip,
+        proxy: req.headers['x-forwarded-for'] || 'none'
+    });
 });
 
 // Send OTP endpoint
@@ -72,7 +81,6 @@ app.post('/api/send-otp', sendOtpLimiter, async (req, res) => {
             });
         }
         
-        // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ 
@@ -81,7 +89,6 @@ app.post('/api/send-otp', sendOtpLimiter, async (req, res) => {
             });
         }
         
-        // Check if OTP already exists and is still valid
         const existingOtp = otpStorage.get(email);
         if (existingOtp && existingOtp.expires > Date.now()) {
             return res.status(400).json({ 
@@ -90,14 +97,11 @@ app.post('/api/send-otp', sendOtpLimiter, async (req, res) => {
             });
         }
         
-        // Generate new OTP
         const otp = generateOTP();
         const expires = Date.now() + 5 * 60 * 1000; // 5 minutes expiry
         
-        // Store OTP
         otpStorage.set(email, { otp, expires });
         
-        // Email options
         const mailOptions = {
             from: `"OTP Service" <${process.env.EMAIL_USER}>`,
             to: email,
@@ -114,7 +118,6 @@ app.post('/api/send-otp', sendOtpLimiter, async (req, res) => {
             `
         };
         
-        // Send email
         await transporter.sendMail(mailOptions);
         
         res.json({ 
@@ -142,7 +145,6 @@ app.post('/api/verify-otp', verifyOtpLimiter, (req, res) => {
             });
         }
         
-        // Validate OTP format
         if (otp.length !== 4 || !/^\d+$/.test(otp)) {
             return res.status(400).json({ 
                 success: false,
@@ -174,7 +176,6 @@ app.post('/api/verify-otp', verifyOtpLimiter, (req, res) => {
             });
         }
         
-        // OTP is valid - remove it from storage
         otpStorage.delete(email);
         
         res.json({ 
@@ -202,14 +203,11 @@ app.post('/api/resend-otp', sendOtpLimiter, async (req, res) => {
             });
         }
         
-        // Generate new OTP
         const otp = generateOTP();
-        const expires = Date.now() + 5 * 60 * 1000; // 5 minutes expiry
+        const expires = Date.now() + 5 * 60 * 1000;
         
-        // Store OTP
         otpStorage.set(email, { otp, expires });
         
-        // Email options
         const mailOptions = {
             from: `"OTP Service" <${process.env.EMAIL_USER}>`,
             to: email,
@@ -226,7 +224,6 @@ app.post('/api/resend-otp', sendOtpLimiter, async (req, res) => {
             `
         };
         
-        // Send email
         await transporter.sendMail(mailOptions);
         
         res.json({ 
@@ -260,6 +257,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Trust proxy setting: ${app.get('trust proxy')}`);
 });
 
 // Cleanup expired OTPs every hour
@@ -277,4 +275,4 @@ setInterval(() => {
     if (cleaned > 0) {
         console.log(`Cleaned up ${cleaned} expired OTPs`);
     }
-}, 60 * 60 * 1000); // Run every hour
+}, 60 * 60 * 1000);
