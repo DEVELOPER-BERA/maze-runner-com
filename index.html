@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>OTP VERIFICATION</title>
+  <style>
+    * { padding: 0; margin: 0; }
+    body {
+      background: #7E97A8;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100vh;
+    }
+    .container {
+      background: #A4C2BA;
+      box-shadow: 0 0 20px #D2EAEC;
+      padding: 20px 30px;
+      border-radius: 10px;
+      text-align: center;
+    }
+    h1 { color: #fff; font-weight: bold; }
+    h4 { color: white; }
+    .span_box { display: flex; margin: 10px; justify-content: center; }
+    span {
+      color: #fff; margin: 5px; padding: 14px;
+      border: 2px solid #2A9277; border-radius: 15px;
+    }
+    .verify, .send {
+      padding: 12px; border: none; border-radius: 5px;
+      margin: 5px; font-weight: bold; cursor: pointer;
+    }
+    .verify { background: #D50B0B; color: #fff; }
+    .send { background: #50AE15; color: black; }
+    .verify:hover { background: #900F0F; }
+    .send:hover { background: #91D069; }
+    input {
+      margin: 5px; padding: 7px; border: none; border-radius: 5px;
+    }
+    p { color: #30F725; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>OTP Verification</h1>
+    <h4>Enter your email to get OTP</h4>
+    <input type="email" id="email" placeholder="Enter Email"><br>
+    <button class="send" onclick="sendOTP()">Send OTP</button>
+
+    <h4>Enter the OTP</h4>
+    <input type="text" id="otp" placeholder="Enter OTP"><br>
+    <button class="verify" onclick="verifyOTP()">Verify OTP</button>
+
+    <p id="message"></p>
+  </div>
+
+  <script>
+    async function sendOTP() {
+      const email = document.getElementById('email').value;
+      if (!email) return alert('Please enter an email');
+
+      const res = await fetch('/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      document.getElementById('message').innerText = data.message;
+    }
+
+    async function verifyOTP() {
+      const email = document.getElementById('email').value;
+      const otp = document.getElementById('otp').value;
+      if (!email || !otp) return alert('Please fill both fields');
+
+      const res = await fetch('/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp })
+      });
+      const data = await res.json();
+      if (data.success) {
+        window.location.href = "https://bera-html-css-javascript-playground.vercel.app";
+      } else {
+        document.getElementById('message').innerText = data.message;
+      }
+    }
+  </script>
+</body>
+</html>
